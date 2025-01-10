@@ -114,6 +114,7 @@ class WaypointFollower(Node):
         error_x = self.x_target - self.current_x
         error_y = self.y_target - self.current_y
         # TBD: theta error?
+        error_theta = 0.0
 
         # 2) Compute derivative of x,y,theta errors
         derivative_x = error_x - self.prev_error_x
