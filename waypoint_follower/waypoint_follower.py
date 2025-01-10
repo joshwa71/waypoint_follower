@@ -137,6 +137,11 @@ class WaypointFollower(Node):
         # 6) Publish velocity commands
         twist_msg = Twist()
 
+        # Whether to rotate in place or move forward.
+        # If the robot is not heading to the waypoint (with a margin 0.1 rad) and
+        # the  waypoint is far away (more than 0.3 m), the robot needs to rotate in place
+        # else, once the rotation is completed, enter the next phase, moving forward until
+        # the distance between the robot and the waypoint is less than 0.05m
         if abs(error_theta)>0.1 and math.hypot(error_x, error_y)>0.3:
             twist_msg.angular.z = min(vtheta, self.max_velo)
             self.get_logger().info( f"rotate before moving forward" )
