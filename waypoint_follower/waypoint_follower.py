@@ -127,7 +127,7 @@ class WaypointFollower(Node):
 
         # 4) PD control for angular velocity
         # TBD: PD for ang vel?
-        vtheta = 0
+        vtheta = 0.0
 
         # 5) Update previous error terms
         self.prev_error_x = error_x
