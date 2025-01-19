@@ -113,26 +113,24 @@ class WaypointFollower(Node):
         # 1) Compute x,y,theta errors
         error_x = self.x_target - self.current_x
         error_y = self.y_target - self.current_y
-        # TBD: theta error?
-        error_theta = 0.0
+        error_theta = self.normalize_angle(math.atan2(error_y, error_x)- self.current_orientation)
 
         # 2) Compute derivative of x,y,theta errors
         derivative_x = error_x - self.prev_error_x
         derivative_y = error_y - self.prev_error_y
-        # TBD: theta error derivative?
+        derivative_theta = error_theta - self.prev_error_theta
 
         # 3) PD control for linear velocities (x, y)
         vx = self.Kp_linear * error_x + self.Kd_linear * derivative_x
         vy = self.Kp_linear * error_y + self.Kd_linear * derivative_y
 
         # 4) PD control for angular velocity
-        # TBD: PD for ang vel?
-        vtheta = 0.0
+        vtheta = self.Kp_angular * error_theta + self.Kd_angular * derivative_theta
 
         # 5) Update previous error terms
         self.prev_error_x = error_x
         self.prev_error_y = error_y
-        # TBD: error update for theta?
+        self.prev_error_theta = error_theta
 
         # 6) Publish velocity commands
         twist_msg = Twist()
