@@ -44,6 +44,7 @@ class WaypointFollower(Node):
         self.current_y = 0.0
         self.current_orientation = 0.0
         self.is_odom_received = False
+        self.is_arrive_waypoint  = True
 
         # Publisher to cmd_vel
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -74,11 +75,14 @@ class WaypointFollower(Node):
         """
         Updates the target waypoint when a new message is received.
         """
+        if self.x_target==None or abs(self.x_target-msg.x) > 0.2 or abs(self.y_target-msg.y) > 0.2 or abs(self.orientation_target-msg.theta) > 0.2:
+            self.is_arrive_waypoint = False
+
         self.x_target = msg.x
         self.y_target = msg.y
         self.orientation_target = msg.theta
         self.get_logger().info(
-            f"Received new waypoint: x={self.x_target}, y={self.y_target}, orientation={self.orientation_target}"
+            f"Received new waypoint: x={self.x_target}, y={self.y_target}, orientation={self.orientation_target}. current state: x={self.current_x}, y={self.current_y}, orientation={self.current_orientation}"
         )
 
     def odom_callback(self, msg: Odometry):
@@ -94,9 +98,6 @@ class WaypointFollower(Node):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         self.current_orientation = math.atan2(siny_cosp, cosy_cosp)
-        self.get_logger().info(
-            f"current state: x={self.current_x}, y={self.current_y}, orientation={self.current_orientation}"
-        )
 
         # keep stop when there is no waypoint published
         if self.x_target is None:
@@ -110,15 +111,17 @@ class WaypointFollower(Node):
         """
         if not self.is_odom_received:
             return
-        # 1) Compute x,y,theta errors
+        # 1) Compute errors
         error_x = self.x_target - self.current_x
         error_y = self.y_target - self.current_y
         error_theta = self.normalize_angle(math.atan2(error_y, error_x)- self.current_orientation)
+        error_orientation = self.normalize_angle(self.orientation_target - self.current_orientation)
 
-        # 2) Compute derivative of x,y,theta errors
+        # 2) Compute derivative of errors
         derivative_x = error_x - self.prev_error_x
         derivative_y = error_y - self.prev_error_y
         derivative_theta = error_theta - self.prev_error_theta
+        derivative_orientation = error_orientation - self.prev_error_orientation
 
         # 3) PD control for linear velocities (x, y)
         vx = self.Kp_linear * error_x + self.Kd_linear * derivative_x
@@ -126,30 +129,42 @@ class WaypointFollower(Node):
 
         # 4) PD control for angular velocity
         vtheta = self.Kp_angular * error_theta + self.Kd_angular * derivative_theta
+        vorientation = self.Kp_angular * error_orientation + self.Kd_angular * derivative_orientation
 
         # 5) Update previous error terms
         self.prev_error_x = error_x
         self.prev_error_y = error_y
         self.prev_error_theta = error_theta
+        self.prev_error_orientation = error_orientation
 
         # 6) Publish velocity commands
         twist_msg = Twist()
 
-        # Whether to rotate in place or move forward.
-        # If the robot is not heading to the waypoint (with a margin 0.1 rad) and
-        # the  waypoint is far away (more than 0.3 m), the robot needs to rotate in place
+        # Before arrving the waypoint, decide whether to rotate in place or move forward: 
+        # If the robot is not heading to the waypoint (with a margin 0.05 rad) and
+        # the  waypoint is far away (more than 0.05 m), the robot needs to rotate in place
         # else, once the rotation is completed, enter the next phase, moving forward until
         # the distance between the robot and the waypoint is less than 0.05m
-        if abs(error_theta)>0.1 and math.hypot(error_x, error_y)>0.3:
-            twist_msg.angular.z = min(vtheta, self.max_velo)
-            self.get_logger().info( f"rotate before moving forward" )
-        elif math.hypot(error_x, error_y)>0.05:
-            twist_msg.linear.x = min(math.hypot(vx,vy), self.max_velo)
-            twist_msg.angular.z = min(vtheta, self.max_velo)
-            self.get_logger().info( f"moving forward" )                      
+        if not self.is_arrive_waypoint:
+            if abs(error_theta)>0.05 and math.hypot(error_x, error_y)>0.1:
+                twist_msg.angular.z = min(vtheta, self.max_velo)
+                self.get_logger().info( f"rotate before moving forward" )
+            elif math.hypot(error_x, error_y)>0.05:
+                twist_msg.linear.x = min(math.hypot(vx,vy), self.max_velo)
+                twist_msg.angular.z = min(vtheta, self.max_velo)
+                self.get_logger().info( f"moving forward" )                      
+            else:
+                self.is_arrive_waypoint = False
+                # arrive the waypoint
+                pass
+        # After arrving the waypoint, rotate in place to the target orientation: 
         else:
-            # arrive
-            pass
+            if abs(error_orientation)>0.05:
+                twist_msg.angular.z = min(vorientation, self.max_velo)
+                self.get_logger().info( f"rotating to target orientation" )
+            else:
+                # arrive the target orientation
+                pass
 
         self.cmd_vel_pub.publish(twist_msg)
 
