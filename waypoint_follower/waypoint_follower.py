@@ -141,7 +141,7 @@ class WaypointFollower(Node):
         # 6) Publish velocity commands
         twist_msg = Twist()
 
-        # Before arrving the waypoint, decide whether to rotate in place or move forward: 
+        # Before arriving to the waypoint, decide whether to rotate in place or move forward: 
         # If the robot is not heading to the waypoint (with a margin 0.05 rad) and
         # the  waypoint is far away (more than 0.05 m), the robot needs to rotate in place
         # else, once the rotation is completed, enter the next phase, moving forward until
@@ -158,7 +158,7 @@ class WaypointFollower(Node):
                 self.is_arrive_waypoint = False
                 # arrive the waypoint
                 pass
-        # After arrving the waypoint, rotate in place to the target orientation: 
+        # After arrving to the waypoint, rotate in place to the target orientation: 
         else:
             if abs(error_orientation)>0.05:
                 twist_msg.angular.z = min(vorientation, self.max_velo)
