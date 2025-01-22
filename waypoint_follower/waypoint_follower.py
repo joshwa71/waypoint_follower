@@ -94,6 +94,7 @@ class WaypointFollower(Node):
         self.current_y = msg.pose.pose.position.y
         
         # Convert quaternion to yaw (theta)
+        # https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
         q = msg.pose.pose.orientation
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
