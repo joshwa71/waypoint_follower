@@ -96,8 +96,9 @@ class WaypointFollower(Node):
         # Convert quaternion to yaw (theta)
         # https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
         q = msg.pose.pose.orientation
-        # TBD: Replace line 100 with the correct one that computes the yaw based on the quaternion.
-        self.current_orientation = 0.0
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        self.current_orientation = math.atan2(siny_cosp, cosy_cosp)
 
         # Remain at the same place, when there is no waypoint published
         if self.x_target is None:
@@ -115,15 +116,15 @@ class WaypointFollower(Node):
         error_x = self.x_target - self.current_x
         error_y = self.y_target - self.current_y
         error_theta = self.normalize_angle(math.atan2(error_y, error_x)- self.current_orientation)
-        # TBD: compute the error in line 119 based current and target orientation
+        # TBD: compute the error in next line based current and target orientation
         error_orientation = 0.0
 
         # 2) Compute derivative of errors
         derivative_x = error_x - self.prev_error_x
         derivative_y = error_y - self.prev_error_y
         derivative_theta = error_theta - self.prev_error_theta
-        # TBD: compute the derivative of error in line 126 based on current and previous error
-        derivative_orientation = error_orientation - self.prev_error_orientation
+        # TBD: compute the derivative of error in next line based on current and previous error
+        derivative_orientation = 0.0
 
         # 3) PD control for linear velocities (x, y)
         vx = self.Kp_linear * error_x + self.Kd_linear * derivative_x
