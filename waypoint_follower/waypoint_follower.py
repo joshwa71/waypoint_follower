@@ -158,7 +158,7 @@ class WaypointFollower(Node):
                 self.is_arrive_waypoint = True
                 # arrive the waypoint
                 pass
-        # After arrving to the waypoint, rotate in place to the target orientation: 
+        # After arriving to the waypoint, rotate in place to the target orientation: 
         else:
             if abs(error_orientation)>0.05:
                 twist_msg.angular.z = min(vorientation, self.max_velo)
