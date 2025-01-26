@@ -100,7 +100,7 @@ class WaypointFollower(Node):
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         self.current_orientation = math.atan2(siny_cosp, cosy_cosp)
 
-        # Remain at the same place, when there is no waypoint published
+        # keep stop when there is no waypoint published
         if self.x_target is None:
             self.x_target = self.current_x
             self.y_target = self.current_y
@@ -116,15 +116,13 @@ class WaypointFollower(Node):
         error_x = self.x_target - self.current_x
         error_y = self.y_target - self.current_y
         error_theta = self.normalize_angle(math.atan2(error_y, error_x)- self.current_orientation)
-        # TBD: compute the error in next line based current and target orientation
-        error_orientation = 0.0
+        error_orientation = self.normalize_angle(self.orientation_target - self.current_orientation)
 
         # 2) Compute derivative of errors
         derivative_x = error_x - self.prev_error_x
         derivative_y = error_y - self.prev_error_y
         derivative_theta = error_theta - self.prev_error_theta
-        # TBD: compute the derivative of error in next line based on current and previous error
-        derivative_orientation = 0.0
+        derivative_orientation = error_orientation - self.prev_error_orientation
 
         # 3) PD control for linear velocities (x, y)
         vx = self.Kp_linear * error_x + self.Kd_linear * derivative_x
