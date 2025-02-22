@@ -1,3 +1,5 @@
+# python3 src/waypoint_follower/waypoint_follower/path_follower.py /custom_odometry_topic
+
 #!/usr/bin/env python3
 
 import math
@@ -11,11 +13,11 @@ from geometry_msgs.msg import Twist, PoseStamped
 class PathFollower(Node):
     """
     A ROS2 node that uses a PD controller to follow a path (list of waypoints).
-    Subscribes to /path for the target path and /odom for the robot's current state,
+    Subscribes to /path for the target path and a specified odometry topic for the robot's current state,
     and publishes velocity commands to /cmd_vel.
     """
 
-    def __init__(self):
+    def __init__(self, odometry_topic):
         super().__init__('path_follower')
 
         # Path and waypoints
@@ -50,10 +52,10 @@ class PathFollower(Node):
         # Publisher to cmd_vel
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
-        # Subscriber to odometry
+        # Subscriber to odometry (with the specified topic)
         self.odom_sub = self.create_subscription(
             Odometry,
-            '/Odometry',
+            odometry_topic,
             self.odom_callback,
             10
         )
@@ -61,7 +63,7 @@ class PathFollower(Node):
         # Subscriber to path
         self.path_sub = self.create_subscription(
             Path,
-            '/path',
+            '/planner/path',
             self.path_callback,
             10
         )
@@ -70,7 +72,7 @@ class PathFollower(Node):
         timer_period = 0.1  # [s] -> 10 Hz
         self.timer = self.create_timer(timer_period, self.control_loop_callback)
 
-        self.get_logger().info("Path Follower node started. Waiting for a path...")
+        self.get_logger().info(f"Path Follower node started. Subscribing to odometry topic: {odometry_topic}")
 
     def path_callback(self, msg: Path):
         """
@@ -174,7 +176,13 @@ class PathFollower(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = PathFollower()
+
+    # Specify the odometry topic (default is '/Odometry')
+    odometry_topic = '/Odometry'  # Default value
+    if len(args) > 1:
+        odometry_topic = args[1]  # Override with command-line argument
+
+    node = PathFollower(odometry_topic)
 
     try:
         rclpy.spin(node)
@@ -186,4 +194,5 @@ def main(args=None):
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    main(sys.argv)
