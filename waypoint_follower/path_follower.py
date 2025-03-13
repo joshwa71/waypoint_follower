@@ -33,9 +33,9 @@ class PathFollower(Node):
         self.max_angular_vel = 0.5
 
         # PD Controller Gains (tune as necessary)
-        self.Kp_linear = 10.0
+        self.Kp_linear = 1.0
         self.Kd_linear = 0.1
-        self.Kp_angular = 5.0
+        self.Kp_angular = 1.0
         self.Kd_angular = 0.1
 
         # Previous errors (for derivative term)
@@ -123,7 +123,7 @@ class PathFollower(Node):
         # 1) Compute errors
         error_x = x_target - self.current_x
         error_y = y_target - self.current_y
-        error_theta = self.normalize_angle(math.atan2(error_y, error_x) - self.current_orientation)
+        error_theta = self.normalize_angle(math.atan2(error_y, error_x) - self.current_orientation) # degree
         error_orientation = self.normalize_angle(orientation_target - self.current_orientation)
 
         # 2) Compute derivative of errors
@@ -153,7 +153,7 @@ class PathFollower(Node):
             self.get_logger().info(f"Reached waypoint {self.current_waypoint_index - 1}. Moving to the next one.")
         else:
             # Move toward the current waypoint
-            if abs(error_theta) > 0.1 and distance_to_waypoint > self.waypoint_threshold:
+            if abs(error_theta) > 1.0 and distance_to_waypoint > self.waypoint_threshold:
                 twist_msg.angular.z = min(vtheta, self.max_angular_vel)
                 self.get_logger().info("Rotating before moving forward")
             else:
