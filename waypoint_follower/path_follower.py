@@ -51,6 +51,7 @@ class PathFollower(Node):
 
         # Publisher to cmd_vel
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.cmd_vel_pub.publish(Twist())
 
         # Subscriber to odometry (with the specified topic)
         self.odom_sub = self.create_subscription(
