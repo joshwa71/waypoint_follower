@@ -3,9 +3,13 @@
 import math
 import rclpy
 from rclpy.node import Node
-
+from std_msgs.msg import String
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, Pose2D
+from sensor_msgs.msg import PointCloud2
+import sensor_msgs_py.point_cloud2 as pc2
+import numpy as np
+from collections import deque
 
 
 class WaypointFollower(Node):
@@ -46,8 +50,30 @@ class WaypointFollower(Node):
         self.is_odom_received = False
         self.is_arrive_waypoint  = True
 
+        # Collision detection parameters
+        self.declare_parameter('min_height', 0.03)  # Minimum height to consider points (in meters)
+        self.declare_parameter('max_height', 0.6)   # Maximum height to consider points (in meters)
+        self.declare_parameter('collision_distance', 0.30)  # Distance threshold for collision detection (in meters)
+        self.declare_parameter('collision_buffer_size', 3)  # Size of buffer for averaging collision detections
+        self.declare_parameter('recovery_waypoints', 1)  # Number of waypoints to skip collision detection after a collision
+        
+        # Get parameters
+        self.min_height = self.get_parameter('min_height').value
+        self.max_height = self.get_parameter('max_height').value
+        self.collision_distance = self.get_parameter('collision_distance').value
+        self.collision_buffer_size = self.get_parameter('collision_buffer_size').value
+        self.recovery_waypoints = self.get_parameter('recovery_waypoints').value
+        
+        # Collision state
+        self.collision_detected = False
+        self.collision_buffer = deque(maxlen=self.collision_buffer_size)
+        self.collision_status_published = False
+        self.recovery_mode = False
+        self.recovery_count = 0
+
         # Publisher to cmd_vel
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.path_status_pub = self.create_publisher(String, '/path_planner/status', 10)
 
         # Subscriber to odometry
         self.odom_sub = self.create_subscription(
@@ -64,12 +90,22 @@ class WaypointFollower(Node):
             self.waypoint_callback,
             10
         )
+        
+        # Subscriber to pointcloud for collision detection
+        self.pointcloud_sub = self.create_subscription(
+            PointCloud2,
+            '/Laser_map',
+            self.pointcloud_callback,
+            10
+        )
 
         # Timer to periodically publish velocity commands
         timer_period = 0.1  # [s] -> 10 Hz
         self.timer = self.create_timer(timer_period, self.control_loop_callback)
 
         self.get_logger().info("Waypoint Follower node started. Waiting for waypoints...")
+        self.get_logger().info(f"Collision detection parameters: min_height={self.min_height}m, max_height={self.max_height}m, distance={self.collision_distance}m")
+        self.get_logger().info(f"Recovery mode will disable collision detection for {self.recovery_waypoints} waypoints after a collision")
 
     def waypoint_callback(self, msg: Pose2D):
         """
@@ -81,6 +117,23 @@ class WaypointFollower(Node):
         self.x_target = msg.x
         self.y_target = msg.y
         self.orientation_target = msg.theta
+        
+        # Reset collision status when receiving a new waypoint
+        self.collision_status_published = False
+        
+        # Handle recovery mode for collision escape
+        if self.recovery_mode:
+            self.recovery_count -= 1
+            if self.recovery_count <= 0:
+                self.recovery_mode = False
+                self.collision_detected = False
+                # Clear collision buffer
+                for _ in range(len(self.collision_buffer)):
+                    self.collision_buffer.append(0)
+                self.get_logger().info("Exiting recovery mode, re-enabling collision detection")
+            else:
+                self.get_logger().info(f"In recovery mode: {self.recovery_count} waypoints remaining before collision detection resumes")
+                
         self.get_logger().info(
             f"Received new waypoint: x={self.x_target}, y={self.y_target}, orientation={self.orientation_target}. current state: x={self.current_x}, y={self.current_y}, orientation={self.current_orientation}"
         )
@@ -105,6 +158,58 @@ class WaypointFollower(Node):
             self.x_target = self.current_x
             self.y_target = self.current_y
             self.orientation_target = self.current_orientation
+            
+    def pointcloud_callback(self, cloud_msg):
+        """
+        Process pointcloud data to detect potential collisions.
+        """
+        # Skip collision checking if in recovery mode
+        if self.recovery_mode:
+            return
+            
+        try:
+            # Extract points from the pointcloud
+            cloud_points = list(pc2.read_points(cloud_msg, field_names=("x", "y", "z"), skip_nans=True))
+            
+            if not cloud_points:
+                return
+                
+            # Filter points by height to avoid ground or tall objects
+            filtered_points = []
+            for point in cloud_points:
+                x, y, z = point
+                if self.min_height <= z <= self.max_height:
+                    filtered_points.append((x, y, z))
+            
+            if not filtered_points:
+                return
+                
+            # Convert to numpy array for faster processing
+            points_array = np.array(filtered_points)
+            
+            # Calculate distance from robot to each point in 2D (ignore z)
+            robot_pos = np.array([self.current_x, self.current_y])
+            points_2d = points_array[:, :2]  # Only x and y
+            
+            # Calculate Euclidean distances
+            distances = np.sqrt(np.sum((points_2d - robot_pos) ** 2, axis=1))
+            
+            # Check if any point is within collision distance
+            collision_count = np.sum(distances < self.collision_distance)
+            
+            # Add to buffer (1 for collision detected, 0 for no collision)
+            self.collision_buffer.append(1 if collision_count > 0 else 0)
+            
+            # Check if majority of recent checks detect collision
+            # Make detection more sensitive - require fewer points to trigger
+            collision_threshold = max(1, len(self.collision_buffer) / 3)  # Only need 1/3 of buffer to be collision
+            self.collision_detected = sum(self.collision_buffer) >= collision_threshold
+            
+            if self.collision_detected and not self.is_arrive_waypoint and not self.collision_status_published:
+                self.get_logger().warn(f"Collision detected: {collision_count} points within {self.collision_distance}m")
+                
+        except Exception as e:
+            self.get_logger().error(f"Error processing pointcloud: {str(e)}")
 
     def control_loop_callback(self):
         """
@@ -112,6 +217,27 @@ class WaypointFollower(Node):
         """
         if not self.is_odom_received:
             return
+            
+        # Check for collision and publish status if detected (skip if in recovery mode)
+        if self.collision_detected and not self.is_arrive_waypoint and not self.collision_status_published and not self.recovery_mode:
+            self.publish_status("COLLISION")
+            self.collision_status_published = True
+            self.is_arrive_waypoint = True  # Stop following the waypoint
+            
+            # Enable recovery mode for next waypoint
+            self.recovery_mode = True
+            self.recovery_count = self.recovery_waypoints
+            self.get_logger().info(f"Entering recovery mode for {self.recovery_count} waypoints")
+            
+            # Stop the robot immediately
+            twist_msg = Twist()
+            self.cmd_vel_pub.publish(twist_msg)
+            return
+            
+        # If we've already published the collision status for this waypoint, don't continue
+        if self.collision_status_published and not self.recovery_mode:
+            return
+            
         # 1) Compute errors
         error_x = self.x_target - self.current_x
         error_y = self.y_target - self.current_y
@@ -157,7 +283,7 @@ class WaypointFollower(Node):
             else:
                 self.is_arrive_waypoint = True
                 # arrive the waypoint
-                pass
+                self.publish_status("WAYPOINT_REACHED")
         # After arriving to the waypoint, rotate in place to the target orientation: 
         else:
             if abs(error_orientation)>0.05:
@@ -165,9 +291,15 @@ class WaypointFollower(Node):
                 self.get_logger().info( f"rotating to target orientation" )
             else:
                 # arrive the target orientation
-                pass
+                self.publish_status("WAYPOINT_REACHED")
 
         self.cmd_vel_pub.publish(twist_msg)
+
+    def publish_status(self, status):
+        """Publish path planner status"""
+        msg = String()
+        msg.data = status
+        self.path_status_pub.publish(msg)
 
     def normalize_angle(self, angle):
         """
