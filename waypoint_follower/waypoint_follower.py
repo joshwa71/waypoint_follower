@@ -53,8 +53,8 @@ class WaypointFollower(Node):
         # Collision detection parameters
         self.declare_parameter('min_height', 0.03)  # Minimum height to consider points (in meters)
         self.declare_parameter('max_height', 0.6)   # Maximum height to consider points (in meters)
-        self.declare_parameter('collision_distance', 0.30)  # Distance threshold for collision detection (in meters)
-        self.declare_parameter('collision_buffer_size', 3)  # Size of buffer for averaging collision detections
+        self.declare_parameter('collision_distance', 0.50)  # Distance threshold for collision detection (in meters)
+        self.declare_parameter('collision_buffer_size', 10)  # Size of buffer for averaging collision detections
         self.declare_parameter('recovery_waypoints', 1)  # Number of waypoints to skip collision detection after a collision
         
         # Get parameters
@@ -121,18 +121,9 @@ class WaypointFollower(Node):
         # Reset collision status when receiving a new waypoint
         self.collision_status_published = False
         
-        # Handle recovery mode for collision escape
+        # Log if a new waypoint is received while in recovery mode
         if self.recovery_mode:
-            self.recovery_count -= 1
-            if self.recovery_count <= 0:
-                self.recovery_mode = False
-                self.collision_detected = False
-                # Clear collision buffer
-                for _ in range(len(self.collision_buffer)):
-                    self.collision_buffer.append(0)
-                self.get_logger().info("Exiting recovery mode, re-enabling collision detection")
-            else:
-                self.get_logger().info(f"In recovery mode: {self.recovery_count} waypoints remaining before collision detection resumes")
+            self.get_logger().info(f"Received new waypoint while in recovery mode. Remaining recovery waypoints: {self.recovery_count}")
                 
         self.get_logger().info(
             f"Received new waypoint: x={self.x_target}, y={self.y_target}, orientation={self.orientation_target}. current state: x={self.current_x}, y={self.current_y}, orientation={self.current_orientation}"
@@ -202,7 +193,7 @@ class WaypointFollower(Node):
             
             # Check if majority of recent checks detect collision
             # Make detection more sensitive - require fewer points to trigger
-            collision_threshold = max(1, len(self.collision_buffer) / 3)  # Only need 1/3 of buffer to be collision
+            collision_threshold = max(1, len(self.collision_buffer) / 10)
             self.collision_detected = sum(self.collision_buffer) >= collision_threshold
             
             if self.collision_detected and not self.is_arrive_waypoint and not self.collision_status_published:
@@ -284,6 +275,20 @@ class WaypointFollower(Node):
                 self.is_arrive_waypoint = True
                 # arrive the waypoint
                 self.publish_status("WAYPOINT_REACHED")
+                
+                # Handle recovery mode exit *after* reaching the waypoint
+                if self.recovery_mode:
+                    self.recovery_count -= 1
+                    if self.recovery_count <= 0:
+                        self.recovery_mode = False
+                        self.collision_detected = False
+                        # Clear collision buffer
+                        for _ in range(len(self.collision_buffer)):
+                            self.collision_buffer.append(0)
+                        self.get_logger().info("Recovery waypoint reached. Exiting recovery mode, re-enabling collision detection.")
+                    else:
+                        self.get_logger().info(f"Recovery waypoint reached. {self.recovery_count} recovery waypoints remaining.")
+                        
         # After arriving to the waypoint, rotate in place to the target orientation: 
         else:
             if abs(error_orientation)>0.05:
