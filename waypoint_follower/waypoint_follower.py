@@ -194,7 +194,7 @@ class WaypointFollower(Node):
             # Check if majority of recent checks detect collision
             # Make detection more sensitive - require fewer points to trigger
             collision_threshold = max(1, len(self.collision_buffer) / 10)
-            self.collision_detected = sum(self.collision_buffer) >= collision_threshold
+            self.collision_detected = sum(self.collision_buffer) > collision_threshold
             
             if self.collision_detected and not self.is_arrive_waypoint and not self.collision_status_published:
                 self.get_logger().warn(f"Collision detected: {collision_count} points within {self.collision_distance}m")
